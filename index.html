@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2026 世界特色美食地圖</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+  <style>
+    :root {
+      --bg-canvas: #F9F7F2;
+      --bg-ocean: #F0F5F7;
+      --land-default: #E5E0D5;
+      --land-hover: #D4CDC0;
+      --text-primary: #2B2A27;
+      --text-secondary: #6E6A63;
+      --card-bg: rgba(255, 255, 255, 0.94);
+      --border-soft: rgba(43, 42, 39, 0.09);
+      --shadow-soft: 0 10px 30px rgba(34, 30, 24, 0.08);
+      --shadow-hover: 0 14px 36px rgba(34, 30, 24, 0.14);
+
+      /* 五大美食色彩分類 */
+      --cat-grains: #F2A65A;   /* 米麵與主食 */
+      --cat-grill: #E06D53;    /* 炙烤與肉食 */
+      --cat-spice: #52A87E;    /* 辛香與燉煮 */
+      --cat-seafood: #3D98A6;  /* 海味與鮮食 */
+      --cat-sweet: #9B72AA;    /* 街頭與甜品 */
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      background-color: var(--bg-canvas);
+      color: var(--text-primary);
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      user-select: none;
+    }
+
+    /* 頂部標題與篩選列 */
+    .top-bar {
+      position: fixed;
+      top: 18px;
+      left: 22px;
+      right: 22px;
+      z-index: 20;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      pointer-events: none;
+    }
+
+    .title-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-soft);
+      border-radius: 16px;
+      padding: 14px 20px;
+      box-shadow: var(--shadow-soft);
+      pointer-events: auto;
+    }
+
+    .title-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #D96B43;
+      background: rgba(217, 107, 67, 0.12);
+      padding: 3px 9px;
+      border-radius: 99px;
+      margin-bottom: 6px;
+    }
+
+    .title-card h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text-primary);
+    }
+
+    .title-card p {
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      margin-top: 3px;
+    }
+
+    /* 分類篩選膠囊 */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-soft);
+      border-radius: 16px;
+      padding: 8px 10px;
+      box-shadow: var(--shadow-soft);
+      pointer-events: auto;
+      max-width: 620px;
+      justify-content: flex-end;
+    }
+
+    .filter-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 99px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .filter-btn:hover {
+      background: rgba(43, 42, 39, 0.05);
+      color: var(--text-primary);
+    }
+
+    .filter-btn.active {
+      background: var(--text-primary);
+      color: #FFFFFF;
+    }
+
+    .filter-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* 地圖容器 */
+    #map-wrapper {
+      width: 100vw;
+      height: 100vh;
+      background: radial-gradient(circle at 50% 45%, #F6F9FA 0%, var(--bg-ocean) 100%);
+      position: relative;
+      cursor: grab;
+    }
+
+    #map-wrapper:active {
+      cursor: grabbing;
+    }
+
+    svg#world-map {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .country {
+      stroke: #FFFFFF;
+      stroke-width: 0.75px;
+      transition: fill 0.25s ease, opacity 0.25s ease, filter 0.2s ease;
+      cursor: pointer;
+    }
+
+    .country.dimmed {
+      opacity: 0.28;
+    }
+
+    .country.highlighted {
+      filter: brightness(0.92);
+      stroke: #2B2A27;
+      stroke-width: 1.2px;
+    }
+
+    /* 地圖上的精簡美食徽章 */
+    .food-marker {
+      cursor: pointer;
+      transition: opacity 0.25s ease, transform 0.2s ease;
+    }
+
+    .food-marker.dimmed {
+      opacity: 0.15;
+      pointer-events: none;
+    }
+
+    .marker-bg {
+      fill: #FFFFFF;
+      stroke-width: 2px;
+      filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.14));
+      transition: transform 0.2s ease;
+    }
+
+    .food-marker:hover .marker-bg,
+    .food-marker.active .marker-bg {
+      transform: scale(1.18);
+    }
+
+    /* 懸停浮動卡片 (Tooltip) */
+    #tooltip {
+      position: fixed;
+      z-index: 40;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(6px) scale(0.97);
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      background: rgba(255, 255, 255, 0.97);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(43, 42, 39, 0.1);
+      border-radius: 18px;
+      padding: 14px 16px;
+      box-shadow: var(--shadow-hover);
+      width: 276px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    #tooltip.visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    .tooltip-illus {
+      width: 68px;
+      height: 68px;
+      flex-shrink: 0;
+      background: #FAF8F4;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(43, 42, 39, 0.06);
+      padding: 6px;
+    }
+
+    .tooltip-illus svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .tooltip-body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .tooltip-country {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .tooltip-cat {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #FFFFFF;
+      padding: 2px 7px;
+      border-radius: 99px;
+      letter-spacing: 0.03em;
+    }
+
+    .tooltip-dish {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #C95B3C;
+      margin-top: 3px;
+    }
+
+    .tooltip-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+      margin-top: 4px;
+    }
+
+    /* 左下角縮放控制 */
+    .controls-left {
+      position: fixed;
+      bottom: 22px;
+      left: 22px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .zoom-group {
+      display: flex;
+      flex-direction: column;
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-soft);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .ctrl-btn {
+      width: 38px;
+      height: 36px;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease;
+    }
+
+    .ctrl-btn + .ctrl-btn {
+      border-top: 1px solid var(--border-soft);
+    }
+
+    .ctrl-btn:hover {
+      background: rgba(43, 42, 39, 0.06);
+    }
+
+    .badge-toggle-btn {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-soft);
+      border-radius: 12px;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      box-shadow: var(--shadow-soft);
+      transition: all 0.2s ease;
+    }
+
+    .badge-toggle-btn:hover {
+      color: var(--text-primary);
+      background: #FFFFFF;
+    }
+
+    /* 右下角圖例面板 */
+    .legend-panel {
+      position: fixed;
+      bottom: 22px;
+      right: 22px;
+      z-index: 25;
+      width: 340px;
+      max-height: 410px;
+      background: var(--card-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border-soft);
+      border-radius: 18px;
+      box-shadow: var(--shadow-soft);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: max-height 0.28s ease;
+    }
+
+    .legend-panel.collapsed {
+      max-height: 48px;
+    }
+
+    .legend-header {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-soft);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .legend-header h2 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .legend-toggle-icon {
+      font-size: 12px;
+      color: var(--text-secondary);
+      transition: transform 0.25s ease;
+    }
+
+    .legend-panel.collapsed .legend-toggle-icon {
+      transform: rotate(180deg);
+    }
+
+    .legend-categories {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 10px;
+      padding: 10px 16px;
+      background: rgba(249, 247, 242, 0.7);
+      border-bottom: 1px solid var(--border-soft);
+      flex-shrink: 0;
+    }
+
+    .legend-cat-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+    }
+
+    .legend-list {
+      overflow-y: auto;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .legend-list::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .legend-list::-webkit-scrollbar-thumb {
+      background: rgba(43, 42, 39, 0.16);
+      border-radius: 99px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 8px;
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.16s ease, transform 0.16s ease;
+    }
+
+    .legend-item:hover,
+    .legend-item.active {
+      background: rgba(43, 42, 39, 0.055);
+    }
+
+    .legend-item.active {
+      box-shadow: inset 3px 0 0 #E06D53;
+      background: rgba(224, 109, 83, 0.08);
+    }
+
+    .legend-item.hidden-by-filter {
+      display: none;
+    }
+
+    .legend-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: #FAF8F4;
+      border: 1px solid rgba(43, 42, 39, 0.07);
+      padding: 4px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .legend-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .legend-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .legend-title-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .legend-dish-name {
+      font-weight: 500;
+      color: #C95B3C;
+    }
+
+    .legend-short-desc {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+
+    /* 載入與錯誤提示 */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-canvas);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 100;
+      transition: opacity 0.35s ease;
+    }
+
+    #loading-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .spinner {
+      width: 34px;
+      height: 34px;
+      border: 3px solid rgba(43, 42, 39, 0.12);
+      border-top-color: #E06D53;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 820px) {
+      .top-bar {
+        flex-direction: column;
+        align-items: stretch;
+        top: 12px;
+        left: 12px;
+        right: 12px;
+      }
+      .filter-bar {
+        justify-content: flex-start;
+        max-width: 100%;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+      }
+      .filter-btn {
+        white-space: nowrap;
+      }
+      .legend-panel {
+        width: calc(100vw - 24px);
+        right: 12px;
+        bottom: 12px;
+        max-height: 250px;
+      }
+      .controls-left {
+        bottom: 274px;
+        left: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div style="font-size:14px; color:#6E6A63;">正在繪製 2026 世界特色美食地圖...</div>
+  </div>
+
+  <!-- 頂部標題與風味篩選 -->
+  <header class="top-bar">
+    <div class="title-card">
+      <span class="title-badge">2026 風味誌 · WORLD CULINARY ATLAS</span>
+      <h1>2026 各國特色美食世界地圖</h1>
+      <p>滑鼠移至國家探索中文國名與插圖，點擊圖例可快速導覽</p>
+    </div>
+
+    <div class="filter-bar" id="filter-bar">
+      <button class="filter-btn active" data-category="all">全部風味</button>
+      <button class="filter-btn" data-category="grains"><span class="filter-dot" style="background:var(--cat-grains)"></span>米麵主食</button>
+      <button class="filter-btn" data-category="grill"><span class="filter-dot" style="background:var(--cat-grill)"></span>炙烤肉食</button>
+      <button class="filter-btn" data-category="spice"><span class="filter-dot" style="background:var(--cat-spice)"></span>辛香燉煮</button>
+      <button class="filter-btn" data-category="seafood"><span class="filter-dot" style="background:var(--cat-seafood)"></span>海味鮮食</button>
+      <button class="filter-btn" data-category="sweet"><span class="filter-dot" style="background:var(--cat-sweet)"></span>街頭甜品</button>
+    </div>
+  </header>
+
+  <!-- 地圖畫布 -->
+  <main id="map-wrapper">
+    <svg id="world-map"></svg>
+  </main>
+
+  <!-- 懸停資訊卡 (國家中文名稱 + 美食插圖) -->
+  <div id="tooltip" role="tooltip">
+    <div class="tooltip-illus" id="tooltip-illus"></div>
+    <div class="tooltip-body">
+      <div class="tooltip-country">
+        <span id="tooltip-country-name">台灣</span>
+        <span class="tooltip-cat" id="tooltip-cat-tag">米麵主食</span>
+      </div>
+      <div class="tooltip-dish" id="tooltip-dish-name">滷肉飯與珍珠奶茶</div>
+      <div class="tooltip-desc" id="tooltip-desc">鹹香滷汁搭Q彈黑糖珍珠，經典街頭靈魂。</div>
+    </div>
+  </div>
+
+  <!-- 左下角縮放與顯示切換 -->
+  <div class="controls-left">
+    <div class="zoom-group">
+      <button class="ctrl-btn" id="zoom-in" title="放大">+</button>
+      <button class="ctrl-btn" id="zoom-out" title="縮小">−</button>
+      <button class="ctrl-btn" id="zoom-reset" title="重設視角" style="font-size:13px;">↺</button>
+    </div>
+    <button class="badge-toggle-btn" id="toggle-markers">隱藏地圖小圖示</button>
+  </div>
+
+  <!-- 右下角圖例面板 -->
+  <aside class="legend-panel" id="legend-panel">
+    <div class="legend-header" id="legend-header">
+      <h2>
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#E06D53;"></span>
+        各國美食圖例與介紹
+      </h2>
+      <span class="legend-toggle-icon">▼</span>
+    </div>
+    <div class="legend-categories">
+      <span class="legend-cat-item"><span class="filter-dot" style="background:var(--cat-grains)"></span>米麵主食</span>
+      <span class="legend-cat-item"><span class="filter-dot" style="background:var(--cat-grill)"></span>炙烤肉食</span>
+      <span class="legend-cat-item"><span class="filter-dot" style="background:var(--cat-spice)"></span>辛香燉煮</span>
+      <span class="legend-cat-item"><span class="filter-dot" style="background:var(--cat-seafood)"></span>海味鮮食</span>
+      <span class="legend-cat-item"><span class="filter-dot" style="background:var(--cat-sweet)"></span>街頭甜品</span>
+    </div>
+    <div class="legend-list" id="legend-list"></div>
+  </aside>
+
+  <script>
+    // 1. 風味分類設定
+    const CATEGORIES = {
+      grains:  { label: '米麵主食', color: '#F2A65A' },
+      grill:   { label: '炙烤肉食', color: '#E06D53' },
+      spice:   { label: '辛香燉煮', color: '#52A87E' },
+      seafood: { label: '海味鮮食', color: '#3D98A6' },
+      sweet:   { label: '街頭甜品', color: '#9B72AA' }
+    };
+
+    // 2. 美食 SVG 向量插圖庫 (簡約繽紛風格)
+    const FOOD_SVGS = {
+      taiwan: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M22 18h20l-2.5 34h-15L22 18z" fill="#E8C39E" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M23.5 36h17l-1 16h-15l-1-16z" fill="#D59A6A"/>
+        <rect x="20" y="14" width="24" height="5" rx="2.5" fill="#F4EDE4" stroke="#3B332B" stroke-width="2"/>
+        <path d="M35 6l-3 28" stroke="#E06D53" stroke-width="3.5" stroke-linecap="round"/>
+        <circle cx="28" cy="46" r="2.3" fill="#3B2B23"/><circle cx="34" cy="47" r="2.3" fill="#3B2B23"/>
+        <circle cx="38" cy="44" r="2.3" fill="#3B2B23"/><circle cx="31" cy="42" r="2.3" fill="#3B2B23"/>
+        <path d="M40 42c0 6 4.5 10 10 10s10-4 10-10H40z" fill="#FFF" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M42 42c2-3 14-3 16 0" fill="#F5E6CA"/>
+        <circle cx="49" cy="41" r="2" fill="#8D5B3E"/><circle cx="53" cy="41" r="1.8" fill="#6B8E23"/>
+      </svg>`,
+
+      japan: `<svg viewBox="0 0 64 64" fill="none">
+        <rect x="8" y="42" width="48" height="8" rx="2" fill="#C99A6B" stroke="#3B332B" stroke-width="2"/>
+        <rect x="14" y="50" width="6" height="5" fill="#A67B51" stroke="#3B332B" stroke-width="1.8"/>
+        <rect x="44" y="50" width="6" height="5" fill="#A67B51" stroke="#3B332B" stroke-width="1.8"/>
+        <rect x="13" y="32" width="18" height="10" rx="4" fill="#FFFFFF" stroke="#3B332B" stroke-width="2"/>
+        <path d="M11 33c0-5 22-5 22 0 0 2.5-22 2.5-22 0z" fill="#F07152" stroke="#3B332B" stroke-width="2"/>
+        <path d="M16 31l4 2M22 30.5l4 2" stroke="#FFD2C4" stroke-width="1.5" stroke-linecap="round"/>
+        <rect x="35" y="32" width="16" height="10" rx="4" fill="#FFFFFF" stroke="#3B332B" stroke-width="2"/>
+        <rect x="34" y="27" width="18" height="7" rx="2.5" fill="#F7C948" stroke="#3B332B" stroke-width="2"/>
+        <rect x="41" y="27" width="4" height="15" fill="#2E3B33"/>
+        <circle cx="32" cy="18" r="5" fill="#7FB069" stroke="#3B332B" stroke-width="1.8"/>
+      </svg>`,
+
+      korea: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M10 30c0 14 9 23 22 23s22-9 22-23H10z" fill="#413D3A" stroke="#2B2A27" stroke-width="2" stroke-linejoin="round"/>
+        <rect x="20" y="53" width="24" height="4" rx="2" fill="#2B2A27"/>
+        <ellipse cx="32" cy="30" rx="20" ry="9" fill="#FFF8EE" stroke="#2B2A27" stroke-width="2"/>
+        <path d="M15 29c3-4 9-5 12-2" stroke="#52A87E" stroke-width="4" stroke-linecap="round"/>
+        <path d="M37 27c4-2 9 0 11 3" stroke="#F2A65A" stroke-width="4" stroke-linecap="round"/>
+        <path d="M19 34c4 2 9 2 12 0" stroke="#E06D53" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="32" cy="29" r="7" fill="#FFFFFF" stroke="#E5DFD3" stroke-width="1.2"/>
+        <circle cx="32" cy="29" r="3.8" fill="#F7B731"/>
+      </svg>`,
+
+      china: `<svg viewBox="0 0 64 64" fill="none">
+        <ellipse cx="32" cy="42" rx="24" ry="11" fill="#E6BE8A" stroke="#3B332B" stroke-width="2"/>
+        <path d="M8 42v6c0 6 10.7 11 24 11s24-5 24-11v-6" fill="#D4A36A" stroke="#3B332B" stroke-width="2"/>
+        <ellipse cx="32" cy="39" rx="20" ry="8" fill="#F6EBDC"/>
+        <path d="M18 39c0-5 4-9 8-9s8 4 8 9H18z" fill="#FFFFFF" stroke="#3B332B" stroke-width="1.8"/>
+        <path d="M31 39c0-5 4-9 8-9s8 4 8 9H31z" fill="#FFFFFF" stroke="#3B332B" stroke-width="1.8"/>
+        <path d="M24 34c0-5 4-9 8-9s8 4 8 9H24z" fill="#FFFDF9" stroke="#3B332B" stroke-width="1.8"/>
+        <circle cx="32" cy="25" r="1.5" fill="#D4A36A"/>
+        <path d="M22 18c-1.5-3 1.5-5 0-8M32 16c-1.5-3 1.5-5 0-8M42 18c-1.5-3 1.5-5 0-8" stroke="#B8B0A4" stroke-width="2" stroke-linecap="round"/>
+      </svg>`,
+
+      vietnam: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M10 31c0 14 9 23 22 23s22-9 22-23H10z" fill="#FFFFFF" stroke="#3B332B" stroke-width="2"/>
+        <ellipse cx="32" cy="31" rx="22" ry="7" fill="#F3C677" stroke="#3B332B" stroke-width="2"/>
+        <path d="M16 32c5 3 11-2 16 1s11-2 16 1" stroke="#FFFDF5" stroke-width="3" stroke-linecap="round"/>
+        <ellipse cx="26" cy="29" rx="5" ry="3" fill="#A65E46"/>
+        <circle cx="39" cy="31" r="2.5" fill="#52A87E"/>
+        <path d="M41 25l14-12M45 27l13-9" stroke="#8D5B3E" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M14 27c2-4 7-4 9 0z" fill="#7BC96F" stroke="#3B332B" stroke-width="1.5"/>
+      </svg>`,
+
+      thailand: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M10 31c0 13 9 22 22 22s22-9 22-22H10z" fill="#3D98A6" stroke="#2B2A27" stroke-width="2"/>
+        <ellipse cx="32" cy="31" rx="22" ry="7.5" fill="#E85D3F" stroke="#2B2A27" stroke-width="2"/>
+        <path d="M22 30c-3-4 2-8 6-6 3 1.5 2 5-1 6" fill="#FF9E80" stroke="#2B2A27" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M36 28c4-3 9 0 8 4-1 2.5-5 2-6 0" fill="#FF9E80" stroke="#2B2A27" stroke-width="1.8" stroke-linecap="round"/>
+        <circle cx="31" cy="34" r="2" fill="#52A87E"/>
+        <path d="M19 20c-1-3 2-5 0-8M33 17c-1-3 2-5 0-8" stroke="#E85D3F" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+      </svg>`,
+
+      india: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M28 19c8-5 22-3 24 6 2 8-8 14-18 12-7-1-11-12-6-18z" fill="#F4CF8B" stroke="#3B332B" stroke-width="2"/>
+        <circle cx="38" cy="24" r="1.8" fill="#B87A3D"/><circle cx="44" cy="28" r="1.5" fill="#B87A3D"/>
+        <path d="M10 35c0 11 7 18 18 18s18-7 18-18H10z" fill="#D47A4A" stroke="#3B332B" stroke-width="2"/>
+        <ellipse cx="28" cy="35" rx="18" ry="6" fill="#E88B28" stroke="#3B332B" stroke-width="2"/>
+        <path d="M22 35c4-2 8-2 12 0" stroke="#FFF6E5" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="28" cy="33" r="2" fill="#52A87E"/>
+      </svg>`,
+
+      turkey: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M14 36l18-12 18 12-18 12-18-12z" fill="#F4C06A" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M14 36v8l18 12 18-12v-8" fill="#D6943B" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M32 48v8" stroke="#3B332B" stroke-width="2"/>
+        <circle cx="32" cy="35" r="4" fill="#6BBF59"/>
+        <circle cx="29" cy="36" r="1.5" fill="#3B873E"/><circle cx="35" cy="36" r="1.5" fill="#3B873E"/>
+        <path d="M15 22l34-10" stroke="#7A6E65" stroke-width="2.5" stroke-linecap="round"/>
+        <rect x="21" y="15" width="7" height="7" rx="2" transform="rotate(-16 21 15)" fill="#A84A38" stroke="#3B332B" stroke-width="1.6"/>
+        <rect x="31" y="12" width="7" height="7" rx="2" transform="rotate(-16 31 12)" fill="#D96B43" stroke="#3B332B" stroke-width="1.6"/>
+      </svg>`,
+
+      italy: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M12 18c13-7 27-7 40 0L32 54 12 18z" fill="#E8B059" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M16 22c10-4.5 22-4.5 32 0L32 50 16 22z" fill="#E24E3B"/>
+        <circle cx="28" cy="27" r="4.2" fill="#FFFDF7"/>
+        <circle cx="37" cy="31" r="4.2" fill="#FFFDF7"/>
+        <circle cx="31" cy="39" r="3.6" fill="#FFFDF7"/>
+        <path d="M31 28c2-3 5-3 6 0-2 2-4 2-6 0z" fill="#4F9D54"/>
+        <path d="M25 34c2-2 4-2 5 0-1.5 2-3.5 2-5 0z" fill="#4F9D54"/>
+      </svg>`,
+
+      france: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M10 38c3-11 12-18 22-18s19 7 22 18c-5 4-11 2-14-2-4-5-12-5-16 0-3 4-9 6-14 2z" fill="#E8A550" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M23 22c2 4 2 8 0 12M41 22c-2 4-2 8 0 12M32 20v12" stroke="#B8732A" stroke-width="1.8" stroke-linecap="round"/>
+        <rect x="36" y="42" width="20" height="5" rx="2.5" fill="#F29CB8" stroke="#3B332B" stroke-width="1.6"/>
+        <rect x="36" y="47" width="20" height="3" fill="#FFF5E1" stroke="#3B332B" stroke-width="1.4"/>
+        <rect x="36" y="50" width="20" height="5" rx="2.5" fill="#F29CB8" stroke="#3B332B" stroke-width="1.6"/>
+      </svg>`,
+
+      spain: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M6 34h5M53 34h5" stroke="#2B2A27" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="32" cy="34" r="21" fill="#36322E" stroke="#2B2A27" stroke-width="2"/>
+        <circle cx="32" cy="34" r="17.5" fill="#F4C44E"/>
+        <path d="M22 28c3-3 7-2 8 1-2 2-6 1-8-1z" fill="#E05A47"/>
+        <path d="M36 39c3-3 7-2 8 1-2 2-6 1-8-1z" fill="#E05A47"/>
+        <ellipse cx="40" cy="27" rx="4" ry="2.5" transform="rotate(30 40 27)" fill="#2F3E46"/>
+        <circle cx="24" cy="39" r="2" fill="#52A87E"/><circle cx="32" cy="34" r="2" fill="#52A87E"/>
+        <path d="M29 22l6 4-4 4z" fill="#FFE066"/>
+      </svg>`,
+
+      uk: `<svg viewBox="0 0 64 64" fill="none">
+        <ellipse cx="32" cy="37" rx="24" ry="15" fill="#FFFFFF" stroke="#3B332B" stroke-width="2"/>
+        <path d="M12 37c4-7 21-10 34-3-8 8-24 10-34 3z" fill="#E3A84F" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <rect x="26" y="18" width="5" height="14" rx="1.5" transform="rotate(-15 26 18)" fill="#F7D060" stroke="#3B332B" stroke-width="1.6"/>
+        <rect x="33" y="16" width="5" height="15" rx="1.5" transform="rotate(8 33 16)" fill="#F7D060" stroke="#3B332B" stroke-width="1.6"/>
+        <rect x="40" y="19" width="5" height="13" rx="1.5" transform="rotate(20 40 19)" fill="#F7D060" stroke="#3B332B" stroke-width="1.6"/>
+        <circle cx="44" cy="42" r="5" fill="#7BC96F" stroke="#3B332B" stroke-width="1.5"/>
+      </svg>`,
+
+      germany: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M22 18c-9 0-13 8-11 16 2 9 11 14 21 14s19-5 21-14c2-8-2-16-11-16-6 0-10 5-10 12 0-7-4-12-10-12z" stroke="#C77D38" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M14 42l36-20" stroke="#9C5725" stroke-width="6.5" stroke-linecap="round" opacity="0.25"/>
+        <circle cx="19" cy="21" r="1.6" fill="#FFF"/><circle cx="44" cy="22" r="1.6" fill="#FFF"/>
+        <circle cx="32" cy="47" r="1.6" fill="#FFF"/><circle cx="16" cy="36" r="1.6" fill="#FFF"/>
+      </svg>`,
+
+      greece: `<svg viewBox="0 0 64 64" fill="none">
+        <ellipse cx="32" cy="38" rx="23" ry="13" fill="#FFFFFF" stroke="#3B332B" stroke-width="2"/>
+        <rect x="20" y="21" width="24" height="14" rx="2" fill="#F9F9F7" stroke="#3B332B" stroke-width="2"/>
+        <circle cx="20" cy="40" r="4.5" fill="#E05A47" stroke="#3B332B" stroke-width="1.5"/>
+        <circle cx="44" cy="39" r="4.5" fill="#52A87E" stroke="#3B332B" stroke-width="1.5"/>
+        <ellipse cx="32" cy="41" rx="4" ry="2.5" fill="#3B2F36"/>
+        <ellipse cx="26" cy="36" rx="3" ry="2" fill="#3B2F36"/>
+      </svg>`,
+
+      morocco: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M12 41h40l-4 11H16l-4-11z" fill="#C96444" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M14 41L29 14c1.3-2.3 4.7-2.3 6 0l15 27H14z" fill="#DE7B56" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="32" cy="12" r="3" fill="#C96444" stroke="#3B332B" stroke-width="1.8"/>
+        <path d="M22 33h20" stroke="#F4C44E" stroke-width="2" stroke-dasharray="3 3"/>
+      </svg>`,
+
+      ethiopia: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M18 32h22v11c0 6-5 11-11 11s-11-5-11-11V32z" fill="#FFFFFF" stroke="#3B332B" stroke-width="2"/>
+        <path d="M40 35h4c3 0 5 2 5 5s-2 5-5 5h-4" stroke="#3B332B" stroke-width="2"/>
+        <ellipse cx="29" cy="32" rx="11" ry="3.5" fill="#5C3A21" stroke="#3B332B" stroke-width="2"/>
+        <ellipse cx="48" cy="50" rx="5" ry="3.5" transform="rotate(-25 48 50)" fill="#6F4E37" stroke="#3B332B" stroke-width="1.6"/>
+        <path d="M24 23c-1.5-3 1.5-5 0-8M33 23c-1.5-3 1.5-5 0-8" stroke="#A68A74" stroke-width="2" stroke-linecap="round"/>
+      </svg>`,
+
+      usa: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M14 28c0-9 8-14 18-14s18 5 18 14H14z" fill="#E8A550" stroke="#3B332B" stroke-width="2"/>
+        <circle cx="25" cy="20" r="1.2" fill="#FFF"/><circle cx="34" cy="18" r="1.2" fill="#FFF"/><circle cx="39" cy="22" r="1.2" fill="#FFF"/>
+        <path d="M12 31c3 2 6-2 10 0s7-2 10 0 7-2 10 0 7-2 10 0" stroke="#62B55A" stroke-width="4" stroke-linecap="round"/>
+        <rect x="13" y="34" width="38" height="7" rx="3.5" fill="#7A442E" stroke="#3B332B" stroke-width="2"/>
+        <path d="M18 34l8 5 6-5z" fill="#F7C948"/>
+        <path d="M15 41h34v4c0 3-3 5-6 5H21c-3 0-6-2-6-5v-4z" fill="#E8A550" stroke="#3B332B" stroke-width="2"/>
+      </svg>`,
+
+      mexico: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M12 42c0-13 9-22 20-22s20 9 20 22H12z" fill="#F2BE54" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="22" cy="24" r="4" fill="#62B55A" stroke="#3B332B" stroke-width="1.5"/>
+        <circle cx="33" cy="21" r="4.5" fill="#E05A47" stroke="#3B332B" stroke-width="1.5"/>
+        <circle cx="42" cy="25" r="4" fill="#62B55A" stroke="#3B332B" stroke-width="1.5"/>
+        <path d="M12 42c0-9 9-14 20-14s20 5 20 14H12z" fill="#F7D06B" stroke="#3B332B" stroke-width="2"/>
+        <circle cx="24" cy="36" r="1.3" fill="#C78A28"/><circle cx="38" cy="37" r="1.3" fill="#C78A28"/>
+      </svg>`,
+
+      peru: `<svg viewBox="0 0 64 64" fill="none">
+        <ellipse cx="32" cy="37" rx="23" ry="13" fill="#EBF4F6" stroke="#3B332B" stroke-width="2"/>
+        <rect x="20" y="30" width="9" height="8" rx="2" fill="#FFFDF9" stroke="#3B332B" stroke-width="1.6"/>
+        <rect x="33" y="29" width="9" height="8" rx="2" fill="#FFFDF9" stroke="#3B332B" stroke-width="1.6"/>
+        <ellipse cx="29" cy="39" rx="6" ry="3.5" fill="#F29356" stroke="#3B332B" stroke-width="1.6"/>
+        <path d="M24 31c3-3 8-3 11 0" stroke="#A64D79" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M40 38c3-4 8-3 9 1z" fill="#62B55A" stroke="#3B332B" stroke-width="1.5"/>
+      </svg>`,
+
+      brazil: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M14 31c0 13 8 21 18 21s18-8 18-21H14z" fill="#6D4B3B" stroke="#2B2A27" stroke-width="2"/>
+        <ellipse cx="32" cy="31" rx="18" ry="6.5" fill="#3B2923" stroke="#2B2A27" stroke-width="2"/>
+        <circle cx="27" cy="30" r="3" fill="#A64B38"/><circle cx="35" cy="32" r="2.5" fill="#A64B38"/>
+        <path d="M39 26c4-5 11-4 13 1z" fill="#F7941D" stroke="#2B2A27" stroke-width="1.6"/>
+        <path d="M16 20l14 7" stroke="#A65E46" stroke-width="5" stroke-linecap="round"/>
+      </svg>`,
+
+      australia: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M10 34c0-9 7-14 14-14s14 5 14 14l-3 14H13l-3-14z" fill="#D9A066" stroke="#3B332B" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M15 34c2-6 16-6 18 0l-2 10H17l-2-10z" fill="#7BC96F"/>
+        <circle cx="24" cy="36" r="5" fill="#FFF"/>
+        <circle cx="24" cy="36" r="2.5" fill="#F7B731"/>
+        <path d="M38 35h15v9c0 4-3 7-7.5 7S38 48 38 44v-9z" fill="#FFF" stroke="#3B332B" stroke-width="2"/>
+        <ellipse cx="45.5" cy="35" rx="7.5" ry="2.5" fill="#B57C4A" stroke="#3B332B" stroke-width="1.6"/>
+      </svg>`,
+
+      regional_asia: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M12 33c0 12 8.5 20 20 20s20-8 20-20H12z" fill="#E06D53" stroke="#3B332B" stroke-width="2"/>
+        <ellipse cx="32" cy="33" rx="20" ry="6.5" fill="#FFF7E6" stroke="#3B332B" stroke-width="2"/>
+        <path d="M22 32c3-4 6-4 9 0s6 4 9 0" stroke="#F2A65A" stroke-width="3" stroke-linecap="round"/>
+        <path d="M36 26l14-10M39 28l14-8" stroke="#5C3A21" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>`,
+
+      regional_europe: `<svg viewBox="0 0 64 64" fill="none">
+        <ellipse cx="32" cy="40" rx="22" ry="12" fill="#FFF" stroke="#3B332B" stroke-width="2"/>
+        <path d="M18 39c4-9 18-12 28-4-4 7-20 9-28 4z" fill="#D99B52" stroke="#3B332B" stroke-width="2"/>
+        <circle cx="38" cy="25" r="5" fill="#F7C948" stroke="#3B332B" stroke-width="1.8"/>
+        <circle cx="26" cy="37" r="3" fill="#62B55A"/>
+      </svg>`,
+
+      regional_americas: `<svg viewBox="0 0 64 64" fill="none">
+        <ellipse cx="32" cy="40" rx="22" ry="11" fill="#FFF" stroke="#3B332B" stroke-width="2"/>
+        <path d="M17 37c4-7 22-8 29-2-3 7-22 8-29 2z" fill="#9E4B38" stroke="#3B332B" stroke-width="2"/>
+        <path d="M24 34l4 4M32 33l4 4" stroke="#6E2E20" stroke-width="2" stroke-linecap="round"/>
+      </svg>`,
+
+      regional_africa: `<svg viewBox="0 0 64 64" fill="none">
+        <path d="M14 33c0 12 8 20 18 20s18-8 18-20H14z" fill="#C97A4A" stroke="#3B332B" stroke-width="2"/>
+        <ellipse cx="32" cy="33" rx="18" ry="6" fill="#F2B45A" stroke="#3B332B" stroke-width="2"/>
+        <circle cx="27" cy="32" r="2.5" fill="#52A87E"/><circle cx="36" cy="33" r="2.5" fill="#E05A47"/>
+      </svg>`
+    };
+
+    // 3. 21 個主打特色美食國家資料 (ISO 3166-1 數字代碼)
+    const FEATURED_COUNTRIES = [
+      {
+        id: '158', nameZh: '台灣', dish: '滷肉飯與珍珠奶茶',
+        shortDesc: '鹹香肉燥飯搭Q彈黑糖波霸',
+        detailDesc: '2026 全球依然風靡的台味雙星，鹹香手切滷肉配手搖珍珠奶茶。',
+        category: 'grains', svg: 'taiwan', coords: [120.96, 23.7]
+      },
+      {
+        id: '392', nameZh: '日本', dish: '職人握壽司與宇治抹茶',
+        shortDesc: '鮮甜海味與微苦回甘茶韻',
+        detailDesc: '講究季節鮮魚的江戶前握壽司，結合2026高人氣精品抹茶甜品。',
+        category: 'seafood', svg: 'japan', coords: [138.25, 36.2]
+      },
+      {
+        id: '410', nameZh: '韓國', dish: '石鍋拌飯與韓式烤肉',
+        shortDesc: '焦香鍋巴拌辣醬與五色時蔬',
+        detailDesc: '熱騰騰石鍋滋滋作響，融合發酵韓式辣醬與鮮嫩烤肉的層次美味。',
+        category: 'grill', svg: 'korea', coords: [127.76, 36.4]
+      },
+      {
+        id: '156', nameZh: '中國', dish: '小籠包與川香料理',
+        shortDesc: '皮薄多汁湯包配花椒辛香',
+        detailDesc: '十八摺薄皮鎖住鮮美高湯，展現各地菜系深厚的火候與調味美學。',
+        category: 'grains', svg: 'china', coords: [104.2, 35.8]
+      },
+      {
+        id: '704', nameZh: '越南', dish: '越式牛肉河粉 (Phở)',
+        shortDesc: '清甜大骨湯頭配九層塔青檸',
+        detailDesc: '八角肉桂慢熬的清澈牛骨湯，擠入青檸並搭配滑順米線與新鮮香草。',
+        category: 'grains', svg: 'vietnam', coords: [106.8, 15.8]
+      },
+      {
+        id: '764', nameZh: '泰國', dish: '冬蔭功酸辣蝦湯',
+        shortDesc: '香茅南薑交織濃郁酸辣鮮味',
+        detailDesc: '泰式香料三重奏：香茅、檸檬葉與朝天椒，完美襯托大蝦的鮮甜。',
+        category: 'spice', svg: 'thailand', coords: [100.99, 15.4]
+      },
+      {
+        id: '356', nameZh: '印度', dish: '香料奶油咖哩佐烤餅',
+        shortDesc: '數十種辛香料慢熬濃郁醬汁',
+        detailDesc: '炭烤坦都里饢餅沾取絲滑番茄奶油咖哩，展現極致辛香平衡。',
+        category: 'spice', svg: 'india', coords: [78.96, 22.0]
+      },
+      {
+        id: '792', nameZh: '土耳其', dish: '卡巴烤肉與開心果蜜餅',
+        shortDesc: '炭火肉串搭酥脆堅果甜點',
+        detailDesc: '橫跨歐亞的炭烤香氣，飯後再來一塊撒滿翠綠開心果的千層果仁蜜餅。',
+        category: 'grill', svg: 'turkey', coords: [35.24, 39.0]
+      },
+      {
+        id: '380', nameZh: '義大利', dish: '拿坡里瑪格麗特披薩',
+        shortDesc: '窯烤豹紋餅皮配莫札瑞拉',
+        detailDesc: '聖馬札諾番茄、水牛莫札瑞拉與羅勒葉，簡單三色演繹經典義式浪漫。',
+        category: 'grains', svg: 'italy', coords: [12.56, 42.5]
+      },
+      {
+        id: '250', nameZh: '法國', dish: '發酵奶油可頌與馬卡龍',
+        shortDesc: '千層酥脆奶香配繽紛杏仁餅',
+        detailDesc: '27層摺疊工藝造就蜂巢般氣孔與酥脆外皮，法式烘焙的極致日常。',
+        category: 'sweet', svg: 'france', coords: [2.21, 46.6]
+      },
+      {
+        id: '724', nameZh: '西班牙', dish: '番紅花海鮮燉飯 (Paella)',
+        shortDesc: '金黃鍋巴米粒吸飽海鮮精華',
+        detailDesc: '以珍貴番紅花染出金黃色澤，在寬口鐵鍋中鎖住淡菜與鮮蝦海味。',
+        category: 'seafood', svg: 'spain', coords: [-3.74, 40.4]
+      },
+      {
+        id: '826', nameZh: '英國', dish: '啤酒麵糊炸魚薯條',
+        shortDesc: '金黃酥脆鱈魚排配麥芽醋',
+        detailDesc: '外殼酥脆、內裡鮮嫩多汁的白肉魚，搭配厚切馬鈴薯條與青豆泥。',
+        category: 'seafood', svg: 'uk', coords: [-2.0, 54.0]
+      },
+      {
+        id: '276', nameZh: '德國', dish: '巴伐利亞扭結麵包與香腸',
+        shortDesc: '鹼水烘焙脆皮搭海鹽結晶',
+        detailDesc: '獨特深棕光澤與嚼勁的扭結麵包，是市集與啤酒節不可或缺的主角。',
+        category: 'grill', svg: 'germany', coords: [10.45, 51.1]
+      },
+      {
+        id: '300', nameZh: '希臘', dish: '費塔起司沙拉與橄欖油料理',
+        shortDesc: '地中海初榨橄欖油與羊奶起司',
+        detailDesc: '陽光熟成的番茄、卡拉馬塔橄欖與整塊綿密費塔起司，清爽健康。',
+        category: 'seafood', svg: 'greece', coords: [22.4, 39.2]
+      },
+      {
+        id: '504', nameZh: '摩洛哥', dish: '北非香料塔吉鍋 (Tagine)',
+        shortDesc: '圓錐陶鍋循環鎖水燉肉果乾',
+        detailDesc: '利用圓錐鍋蓋讓蒸汽回流，將羊肉、藏紅花與杏桃慢燉至入口即化。',
+        category: 'spice', svg: 'morocco', coords: [-7.09, 31.8]
+      },
+      {
+        id: '231', nameZh: '衣索比亞', dish: '耶加雪菲咖啡與英傑拉餅',
+        shortDesc: '花果香手沖咖啡配發酵酸餅',
+        detailDesc: '咖啡發源地的經典儀式感，搭配苔麩穀物發酵而成的海綿薄餅共享。',
+        category: 'sweet', svg: 'ethiopia', coords: [40.48, 9.1]
+      },
+      {
+        id: '840', nameZh: '美國', dish: '美式炭烤起司漢堡',
+        shortDesc: '厚實多汁肉排配融化切達起司',
+        detailDesc: '布里歐麵包夾入高溫梅納反應牛排、煙燻培根與特製美式醬汁。',
+        category: 'grill', svg: 'usa', coords: [-98.5, 39.5]
+      },
+      {
+        id: '484', nameZh: '墨西哥', dish: '傳統玉米餅塔可 (Taco)',
+        shortDesc: '炭烤肉片佐酪梨莎莎與青檸',
+        detailDesc: '手壓玉米餅包裹慢烤豬肉與新鮮鳳梨莎莎醬，酸辣爽口充滿活力。',
+        category: 'sweet', svg: 'mexico', coords: [-102.5, 23.6]
+      },
+      {
+        id: '604', nameZh: '秘魯', dish: '秘魯檸汁醃魚生 (Ceviche)',
+        shortDesc: '鮮酸青檸汁低溫醃漬鮮魚',
+        detailDesc: '2026 拉美美食代表，以虎奶酸辣醬汁現拌白肉魚、紫洋蔥與烤玉米。',
+        category: 'seafood', svg: 'peru', coords: [-75.0, -9.5]
+      },
+      {
+        id: '076', nameZh: '巴西', dish: '巴西黑豆燉肉與窯烤',
+        shortDesc: '濃郁黑豆燉豬肉配柳橙解膩',
+        detailDesc: '國菜 Feijoada 融合黑豆與煙燻肉品，搭配木薯粉與鮮甜柳橙切片。',
+        category: 'grill', svg: 'brazil', coords: [-51.9, -14.2]
+      },
+      {
+        id: '036', nameZh: '澳洲', dish: '酪梨水波蛋早午餐與扁白咖啡',
+        shortDesc: '酸種麵包搭滑順酪梨與拉花',
+        detailDesc: '引領全球咖啡館潮流的澳式 Brunch，講究新鮮原型食材與絲滑 Flat White。',
+        category: 'sweet', svg: 'australia', coords: [134.5, -25.5]
+      }
+    ];
+
+    const FEATURED_BY_ID = Object.fromEntries(FEATURED_COUNTRIES.map(c => [c.id, c]));
+
+    // 4. 全球國家繁體中文名稱與補充風味對照（確保滑到任何國家都有中文名＋插圖）
+    const EXTRA_COUNTRY_ZH = {
+      '004': '阿富汗', '008': '阿爾巴尼亞', '012': '阿爾及利亞', '024': '安哥拉',
+      '032': '阿根廷', '040': '奧地利', '050': '孟加拉', '051': '亞美尼亞',
+      '056': '比利時', '064': '不丹', '068': '玻利維亞', '070': '波士尼亞與赫塞哥維納',
+      '072': '波札那', '096': '汶萊', '100': '保加利亞', '104': '緬甸',
+      '108': '蒲隆地', '112': '白俄羅斯', '116': '柬埔寨', '120': '喀麥隆',
+      '124': '加拿大', '140': '中非共和國', '144': '斯里蘭卡', '148': '查德',
+      '152': '智利', '170': '哥倫比亞', '178': '剛果共和國', '180': '剛果民主共和國',
+      '188': '哥斯大黎加', '191': '克羅埃西亞', '192': '古巴', '196': '賽普勒斯',
+      '203': '捷克', '204': '貝南', '208': '丹麥', '214': '多明尼加',
+      '218': '厄瓜多', '222': '薩爾瓦多', '226': '赤道幾內亞', '232': '厄利垂亞',
+      '233': '愛沙尼亞', '242': '斐濟', '246': '芬蘭', '262': '吉布地',
+      '266': '加彭', '268': '喬治亞', '270': '甘比亞', '275': '巴勒斯坦',
+      '288': '迦納', '304': '格陵蘭', '320': '瓜地馬拉', '324': '幾內亞',
+      '328': '蓋亞那', '332': '海地', '340': '宏都拉斯', '348': '匈牙利',
+      '352': '冰島', '360': '印尼', '364': '伊朗', '368': '伊拉克',
+      '372': '愛爾蘭', '376': '以色列', '384': '象牙海岸', '388': '牙買加',
+      '398': '哈薩克', '400': '約旦', '404': '肯亞', '408': '北韓',
+      '414': '科威特', '417': '吉爾吉斯', '418': '寮國', '422': '黎巴嫩',
+      '426': '賴索托', '428': '拉脫維亞', '430': '賴比瑞亞', '434': '利比亞',
+      '440': '立陶宛', '442': '盧森堡', '450': '馬達加斯加', '454': '馬拉威',
+      '458': '馬來西亞', '466': '馬利', '478': '茅利塔尼亞', '496': '蒙古',
+      '498': '摩爾多瓦', '499': '蒙特內哥羅', '508': '莫三比克', '512': '阿曼',
+      '516': '納米比亞', '524': '尼泊爾', '528': '荷蘭', '540': '新喀里多尼亞',
+      '554': '紐西蘭', '558': '尼加拉瓜', '562': '尼日', '566': '奈及利亞',
+      '578': '挪威', '586': '巴基斯坦', '591': '巴拿馬', '598': '巴布亞紐幾內亞',
+      '600': '巴拉圭', '608': '菲律賓', '616': '波蘭', '620': '葡萄牙',
+      '630': '波多黎各', '634': '卡達', '642': '羅馬尼亞', '643': '俄羅斯',
+      '646': '盧安達', '682': '沙烏地阿拉伯', '686': '塞內加爾', '688': '塞爾維亞',
+      '694': '獅子山', '702': '新加坡', '703': '斯洛伐克', '705': '斯洛維尼亞',
+      '706': '索馬利亞', '710': '南非', '716': '辛巴威', '728': '南蘇丹',
+      '729': '蘇丹', '740': '蘇利南', '748': '史瓦帝尼', '752': '瑞典',
+      '756': '瑞士', '760': '敘利亞', '762': '塔吉克', '768': '多哥',
+      '780': '千里達及托巴哥', '784': '阿拉伯聯合大公國', '788': '突尼西亞', '795': '土庫曼',
+      '800': '烏干達', '804': '烏克蘭', '807': '北馬其頓', '818': '埃及',
+      '834': '坦尚尼亞', '854': '布吉納法索', '858': '烏拉圭', '860': '烏茲別克',
+      '862': '委內瑞拉', '887': '葉門', '894': '尚比亞'
+    };
+
+    // 補充部分熱門國家具體菜色（非主打但滑過有驚喜）
+    const EXTRA_FOOD_HINTS = {
+      '124': { dish: '楓糖鬆餅與肉汁起司薯條', desc: '熱騰騰薯條淋上濃郁肉汁與凝乳起司。', svg: 'regional_americas' },
+      '032': { dish: '阿根廷炭烤牛排 (Asado)', desc: '原木慢火炭烤牛肉搭青醬，南美肉食盛宴。', svg: 'regional_americas' },
+      '056': { dish: '比利時烈日鬆餅與巧克力', desc: '珍珠糖脆皮鬆餅與百年精品手工巧克力。', svg: 'france' },
+      '756': { dish: '瑞士起司火鍋 (Fondue)', desc: '白葡萄酒融化艾曼塔起司，沾食酥脆麵包。', svg: 'regional_europe' },
+      '620': { dish: '葡式蛋塔與鹽漬鱈魚', desc: '焦糖酥皮蛋塔配肉桂粉，大西洋岸的暖心風味。', svg: 'france' },
+      '360': { dish: '印尼巴東牛肉 (Rendang)', desc: '椰奶與香茅慢燉數小時的南洋深層風味。', svg: 'regional_asia' },
+      '458': { dish: '椰漿飯與肉骨茶', desc: '斑蘭葉椰香米飯搭配脆花生、江魚仔與參巴醬。', svg: 'regional_asia' },
+      '702': { dish: '海南雞飯與辣椒螃蟹', desc: '嫩滑白斬雞配雞油香飯，多元交融的獅城名菜。', svg: 'regional_asia' },
+      '818': { dish: '庫莎莉與埃及烤餅', desc: '米飯、扁豆與脆洋蔥拌番茄香蒜醬的國民小吃。', svg: 'regional_africa' },
+      '554': { dish: '紐西蘭毛利窯烤與奇異果甜點', desc: '天然草飼牛羊排與蛋白霜水果塔帕芙洛娃。', svg: 'australia' },
+      '643': { dish: '羅宋湯與布林餅', desc: '甜菜根熬製的鮮紅湯品搭配酸奶油溫潤暖胃。', svg: 'regional_europe' }
+    };
+
+    function getCountryDisplayData(feature) {
+      const id = String(feature.id || '').padStart(3, '0');
+      if (FEATURED_BY_ID[id]) {
+        const c = FEATURED_BY_ID[id];
+        return {
+          isFeatured: true,
+          id,
+          nameZh: c.nameZh,
+          dish: c.dish,
+          desc: c.detailDesc,
+          category: c.category,
+          svg: c.svg
+        };
+      }
+
+      const nameZh = EXTRA_COUNTRY_ZH[id] || feature.properties?.name || '探索地區';
+      if (EXTRA_FOOD_HINTS[id]) {
+        const h = EXTRA_FOOD_HINTS[id];
+        return {
+          isFeatured: false,
+          id,
+          nameZh,
+          dish: h.dish,
+          desc: h.desc,
+          category: null,
+          svg: h.svg
+        };
+      }
+
+      // 依經度/緯度給與對應區域美食插圖
+      const centroid = d3.geoCentroid(feature);
+      const [lon, lat] = centroid;
+      let svg = 'regional_europe';
+      let dish = '在地傳統家常料理';
+      if (lon < -30) {
+        svg = 'regional_americas';
+        dish = '美洲地方特色烤肉與玉米料理';
+      } else if (lon > 60 && lat > 0) {
+        svg = 'regional_asia';
+        dish = '亞洲香料米麵與傳統風味';
+      } else if (lat < 33 && lon > -20 && lon < 60) {
+        svg = 'regional_africa';
+        dish = '傳統燉煮與地方穀物料理';
+      }
+
+      return {
+        isFeatured: false,
+        id,
+        nameZh,
+        dish,
+        desc: '保留當地風土與世代傳承的特色風味料理。',
+        category: null,
+        svg
+      };
+    }
+
+    // 5. 初始化地圖與互動
+    const svg = d3.select('#world-map');
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    svg.attr('viewBox', `0 0 ${width} ${height}`);
+
+    const gMap = svg.append('g');
+    const countriesGroup = gMap.append('g').attr('class', 'countries-layer');
+    const markersGroup = gMap.append('g').attr('class', 'markers-layer');
+
+    const projection = d3.geoNaturalEarth1()
+      .scale(Math.min(width / 5.4, height / 2.85))
+      .translate([width / 2, height / 2 + 22]);
+
+    const pathGenerator = d3.geoPath().projection(projection);
+
+    let activeCategory = 'all';
+    let showMarkers = true;
+
+    // 縮放與平移
+    const zoom = d3.zoom()
+      .scaleExtent([1, 7])
+      .on('zoom', (event) => {
+        gMap.attr('transform', event.transform);
+        const k = event.transform.k;
+        markersGroup.selectAll('.food-marker')
+          .attr('transform', d => {
+            const [x, y] = projection(d.coords);
+            return `translate(${x}, ${y}) scale(${1 / Math.pow(k, 0.55)})`;
+          });
+      });
+
+    svg.call(zoom);
+
+    // 懸停提示控制
+    const tooltip = document.getElementById('tooltip');
+    const tooltipIllus = document.getElementById('tooltip-illus');
+    const tooltipCountryName = document.getElementById('tooltip-country-name');
+    const tooltipCatTag = document.getElementById('tooltip-cat-tag');
+    const tooltipDishName = document.getElementById('tooltip-dish-name');
+    const tooltipDesc = document.getElementById('tooltip-desc');
+
+    function showTooltip(data, clientX, clientY) {
+      tooltipIllus.innerHTML = FOOD_SVGS[data.svg] || FOOD_SVGS.regional_europe;
+      tooltipCountryName.textContent = data.nameZh;
+      tooltipDishName.textContent = data.dish;
+      tooltipDesc.textContent = data.desc;
+
+      if (data.category && CATEGORIES[data.category]) {
+        const cat = CATEGORIES[data.category];
+        tooltipCatTag.style.display = 'inline-block';
+        tooltipCatTag.style.backgroundColor = cat.color;
+        tooltipCatTag.textContent = cat.label;
+      } else {
+        tooltipCatTag.style.display = 'inline-block';
+        tooltipCatTag.style.backgroundColor = '#8E887E';
+        tooltipCatTag.textContent = '地方風味';
+      }
+
+      tooltip.classList.add('visible');
+      positionTooltip(clientX, clientY);
+    }
+
+    function positionTooltip(x, y) {
+      const tw = 280;
+      const th = 126;
+      const pad = 16;
+      let left = x + 18;
+      let top = y - th / 2;
+
+      if (left + tw > window.innerWidth - pad) {
+        left = x - tw - 18;
+      }
+      if (top < pad) top = pad;
+      if (top + th > window.innerHeight - pad) {
+        top = window.innerHeight - th - pad;
+      }
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    }
+
+    function hideTooltip() {
+      tooltip.classList.remove('visible');
+    }
+
+    function setActiveHighlight(countryId) {
+      countriesGroup.selectAll('.country')
+        .classed('highlighted', d => String(d.id).padStart(3, '0') === countryId);
+      markersGroup.selectAll('.food-marker')
+        .classed('active', d => d.id === countryId);
+
+      document.querySelectorAll('.legend-item').forEach(el => {
+        const match = el.dataset.id === countryId;
+        el.classList.toggle('active', match);
+        if (match) {
+          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      });
+    }
+
+    function clearActiveHighlight() {
+      countriesGroup.selectAll('.country').classed('highlighted', false);
+      markersGroup.selectAll('.food-marker').classed('active', false);
+      document.querySelectorAll('.legend-item').forEach(el => el.classList.remove('active'));
+    }
+
+    // 建立右下角圖例清單
+    function renderLegend() {
+      const listEl = document.getElementById('legend-list');
+      listEl.innerHTML = '';
+
+      FEATURED_COUNTRIES.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'legend-item';
+        div.dataset.id = item.id;
+        div.dataset.category = item.category;
+
+        div.innerHTML = `
+          <div class="legend-icon">${FOOD_SVGS[item.svg]}</div>
+          <div class="legend-info">
+            <div class="legend-title-row">
+              <span class="filter-dot" style="background:${CATEGORIES[item.category].color}; width:7px; height:7px;"></span>
+              <span>${item.nameZh}</span>
+              <span class="legend-dish-name">· ${item.dish}</span>
+            </div>
+            <div class="legend-short-desc">${item.shortDesc}</div>
+          </div>
+        `;
+
+        div.addEventListener('mouseenter', () => {
+          setActiveHighlight(item.id);
+          const [px, py] = projection(item.coords);
+          const transform = d3.zoomTransform(svg.node());
+          const screenX = transform.applyX(px);
+          const screenY = transform.applyY(py);
+          showTooltip({
+            isFeatured: true,
+            id: item.id,
+            nameZh: item.nameZh,
+            dish: item.dish,
+            desc: item.detailDesc,
+            category: item.category,
+            svg: item.svg
+          }, screenX, screenY);
+        });
+
+        div.addEventListener('mouseleave', () => {
+          clearActiveHighlight();
+          hideTooltip();
+        });
+
+        div.addEventListener('click', () => {
+          const [px, py] = projection(item.coords);
+          const scale = 2.4;
+          svg.transition().duration(650).call(
+            zoom.transform,
+            d3.zoomIdentity.translate(width / 2 - px * scale, height / 2 - py * scale).scale(scale)
+          );
+        });
+
+        listEl.appendChild(div);
+      });
+    }
+
+    // 套用分類篩選
+    function applyFilter(category) {
+      activeCategory = category;
+
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.category === category);
+      });
+
+      countriesGroup.selectAll('.country').classed('dimmed', d => {
+        if (category === 'all') return false;
+        const id = String(d.id).padStart(3, '0');
+        const feat = FEATURED_BY_ID[id];
+        return !feat || feat.category !== category;
+      });
+
+      markersGroup.selectAll('.food-marker').classed('dimmed', d => {
+        return category !== 'all' && d.category !== category;
+      });
+
+      document.querySelectorAll('.legend-item').forEach(el => {
+        const match = category === 'all' || el.dataset.category === category;
+        el.classList.toggle('hidden-by-filter', !match);
+      });
+    }
+
+    // 載入世界地圖 TopoJSON
+    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+      .then(res => {
+        if (!res.ok) throw new Error('無法載入地圖資料');
+        return res.json();
+      })
+      .then(world => {
+        const countries = topojson.feature(world, world.objects.countries).features
+          .filter(d => String(d.id).padStart(3, '0') !== '010'); // 隱藏南極洲讓構圖更聚焦
+
+        // 繪製國家多邊形
+        countriesGroup.selectAll('path')
+          .data(countries)
+          .join('path')
+          .attr('class', 'country')
+          .attr('d', pathGenerator)
+          .attr('fill', d => {
+            const id = String(d.id).padStart(3, '0');
+            const feat = FEATURED_BY_ID[id];
+            return feat ? CATEGORIES[feat.category].color : '#E5E0D5';
+          })
+          .on('mouseenter', function(event, d) {
+            const data = getCountryDisplayData(d);
+            setActiveHighlight(data.id);
+            if (!data.isFeatured) {
+              d3.select(this).attr('fill', '#D4CDC0');
+            }
+            showTooltip(data, event.clientX, event.clientY);
+          })
+          .on('mousemove', function(event) {
+            positionTooltip(event.clientX, event.clientY);
+          })
+          .on('mouseleave', function(event, d) {
+            const id = String(d.id).padStart(3, '0');
+            if (!FEATURED_BY_ID[id]) {
+              d3.select(this).attr('fill', '#E5E0D5');
+            }
+            clearActiveHighlight();
+            hideTooltip();
+          });
+
+        // 繪製地圖上的精簡圓形美食徽章
+        const markerNodes = markersGroup.selectAll('g.food-marker')
+          .data(FEATURED_COUNTRIES)
+          .join('g')
+          .attr('class', 'food-marker')
+          .attr('transform', d => {
+            const [x, y] = projection(d.coords);
+            return `translate(${x}, ${y})`;
+          });
+
+        markerNodes.append('circle')
+          .attr('class', 'marker-bg')
+          .attr('r', 12.5)
+          .attr('stroke', d => CATEGORIES[d.category].color);
+
+        markerNodes.append('g')
+          .attr('transform', 'translate(-9, -9) scale(0.28)')
+          .html(d => FOOD_SVGS[d.svg]);
+
+        markerNodes
+          .on('mouseenter', function(event, d) {
+            event.stopPropagation();
+            setActiveHighlight(d.id);
+            showTooltip({
+              isFeatured: true,
+              id: d.id,
+              nameZh: d.nameZh,
+              dish: d.dish,
+              desc: d.detailDesc,
+              category: d.category,
+              svg: d.svg
+            }, event.clientX, event.clientY);
+          })
+          .on('mousemove', (event) => positionTooltip(event.clientX, event.clientY))
+          .on('mouseleave', () => {
+            clearActiveHighlight();
+            hideTooltip();
+          });
+
+        renderLegend();
+        document.getElementById('loading-overlay').classList.add('hidden');
+      })
+      .catch(err => {
+        document.getElementById('loading-overlay').innerHTML = `
+          <div style="color:#E06D53; font-weight:700;">地圖載入失敗</div>
+          <div style="font-size:13px; color:#6E6A63;">請確認網路連線後重新整理頁面（${err.message}）</div>
+        `;
+      });
+
+    // 綁定上方篩選按鈕
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => applyFilter(btn.dataset.category));
+    });
+
+    // 綁定左下角控制項
+    document.getElementById('zoom-in').addEventListener('click', () => {
+      svg.transition().duration(300).call(zoom.scaleBy, 1.45);
+    });
+    document.getElementById('zoom-out').addEventListener('click', () => {
+      svg.transition().duration(300).call(zoom.scaleBy, 0.7);
+    });
+    document.getElementById('zoom-reset').addEventListener('click', () => {
+      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+    });
+
+    const toggleMarkersBtn = document.getElementById('toggle-markers');
+    toggleMarkersBtn.addEventListener('click', () => {
+      showMarkers = !showMarkers;
+      markersGroup.style('display', showMarkers ? null : 'none');
+      toggleMarkersBtn.textContent = showMarkers ? '隱藏地圖小圖示' : '顯示地圖小圖示';
+    });
+
+    // 綁定右下角圖例收合
+    document.getElementById('legend-header').addEventListener('click', () => {
+      document.getElementById('legend-panel').classList.toggle('collapsed');
+    });
+  </script>
+</body>
+</html>
